@@ -19,7 +19,19 @@ def get_data_from_vivino(term):
     r.raise_for_status()
     data = r.json()
 
-    hit = data["hits"][0]
+    for hit in data["hits"]:
+        winery = hit.get("winery")
+        if winery is None:
+            continue
+        address = winery.get("address")
+        if address is None:
+            continue
+        country = address.get("country")
+        if country == "ar":
+            break
+    else:
+        # nothing useful found :/
+        return pd.Series({"url": "", "ratings_average": 0, "ratings_count": 0})
 
     return pd.Series(
         {
@@ -40,7 +52,7 @@ def main():
 
     vinos = bebidas_df.loc[bebidas_df["categoria"] == "VINOS"]
 
-    search_strings = vinos[["categoria", "descripcion", "variedad"]].apply(
+    search_strings = vinos[["marca", "descripcion", "variedad"]].apply(
         lambda row: " ".join(row.values), axis=1
     )
 
