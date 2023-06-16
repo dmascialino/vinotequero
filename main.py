@@ -15,6 +15,7 @@ def get_data_from_vivino(term):
         "%3B%20Browser%20(lite)&x-algolia-application-id=9TAKGWJUXL&x-algolia-api-key=60c11b2f1068885161d95ca068d3a6ae"
     )
 
+    term = term.replace("&", "")
     r = requests.post(VIVINO_INDEX_URL, json={"params": f"query={term}&hitsPerPage=6"})
     r.raise_for_status()
     data = r.json()
@@ -24,14 +25,20 @@ def get_data_from_vivino(term):
         if winery is None:
             continue
         address = winery.get("address")
-        if address is None:
-            continue
-        country = address.get("country")
-        if country == "ar":
-            break
+        if address:
+            country = address.get("country")
+            if country == "ar":
+                break
+        region = winery.get("region")
+        if region:
+            country = region.get("country")
+            if country == "ar":
+                break
     else:
         # nothing useful found :/
-        return pd.Series({"url": "", "ratings_average": 0, "ratings_count": 0})
+        return pd.Series(
+            {}
+        )
 
     return pd.Series(
         {
@@ -42,6 +49,10 @@ def get_data_from_vivino(term):
     )
 
 
+def clean_price(s):
+    return s.replace(".", "").replace("$", "").replace(",00", "")
+
+
 def main():
     bebidas = requests.get("https://app.cbgbdistribucion.com.ar/api/v1/bebidas/").json()
 
@@ -50,10 +61,21 @@ def main():
         columns=["categoria", "marca", "descripcion", "variedad", "precio_unidad"],
     )
 
+    bebidas_df["sitio"] = "cbgb"
+
     vinos = bebidas_df.loc[bebidas_df["categoria"] == "VINOS"]
+    vinos = vinos.loc[~bebidas_df["descripcion"].str.contains("LA EMPRESA PERMANECERÁ")]
+
+    mp_tables = pd.read_html("https://mpdrinks.com.ar/lista-de-precios/", decimal=",", thousands=".",
+            converters={'Precio Efectivo x Unidad': clean_price}, displayed_only=True)
+    mp_vinos = mp_tables[2].rename(columns={"Unnamed: 0": "descripcion",
+        "Precio Efectivo x Unidad": "precio_unidad"})[["descripcion", "precio_unidad"]]
+    mp_vinos["sitio"] = "mp_drinks"
+
+    vinos = pd.concat([vinos, mp_vinos])
 
     search_strings = vinos[["marca", "descripcion", "variedad"]].apply(
-        lambda row: " ".join(row.values), axis=1
+        lambda row: " ".join(row.dropna().values), axis=1
     )
 
     vivino_data = search_strings.progress_apply(get_data_from_vivino)
@@ -63,6 +85,7 @@ def main():
     html_table = full_data.to_html(
         table_id="vinos",
         columns=[
+            "sitio",
             "marca",
             "descripcion",
             "variedad",
